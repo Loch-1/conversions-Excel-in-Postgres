@@ -1,3 +1,7 @@
 /venv
 /.idea
-1base*
+/!initial data
+*base*
+*.txt
+*test*
+config.py
