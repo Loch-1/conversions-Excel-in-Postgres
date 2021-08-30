@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 # -*- encoding: utf-8 -*-
 
-
 from openpyxl import load_workbook
 
 import psycopg2
 import config
-import re
 
 ver = "1.0"
 copyleft = "(c) 2021 Viktor"
@@ -16,12 +14,12 @@ print(f"{ver} \n{copyleft}\n{comment}\n\n")
 
 sourseFileUserUNEP = 'D:\\project\\conversion Excel in Postgres\\!initial data\\UNEP_users.xlsx'
 sourseFileUserUKEP = 'D:\\project\\conversion Excel in Postgres\\!initial data\\UKEP_users.xlsx'
-sourseFileSertUNEP = 'D:\\project\\conversion Excel in Postgres\\!initial data\\UNEP_certs.xlsx'
+sourseFileSertUNEP = 'D:\\project\\conversion Excel in Postgres\\!initial data\\UNEP_certs_Short.xlsx'
 sourseFileSertUKEP = 'D:\\project\\conversion Excel in Postgres\\!initial data\\UKEP_certs.xlsx'
 file_error = 'D:\\project\\conversion Excel in Postgres\\!initial data\\data_error.txt'
 
 userList = {}
-errorList = []  #
+certUnepList = []
 
 db_config = config.db_config
 
@@ -33,6 +31,7 @@ print(conn.get_dsn_parameters(), "\n")
 
 cursor.close()
 conn.close()
+
 
 def createTableUCUser():
     conn = psycopg2.connect(**db_config)
@@ -78,35 +77,31 @@ def createTableCertType():
     cursor.close()
     conn.close()
 
-    print('Tablen ')
+    print('CertificateType table is filled in')
 
-#
-# try:
-#     cursor.execute('''CREATE TABLE CertificateUNEP
-#         (ID SERIAL PRIMARY KEY,
-#         CertificateType int REFERENCES CertificateType(ID) ON DELETE CASCADE,
-#         Thumbprint VARCHAR(50) no NULL,
-#         validBefore DATE no NULL,
-#         validAfter DATE no NULL,
-#         IsDefault boolean,
-#         UCUser VARCHAR(50) REFERENCES UCUser(ID) ON DELETE CASCADE
-#         );''')
-#
-#     print('Таблица Certificate создана')
-#
-# except psycopg2.errors.DuplicateTable:
-#     print ('Таблица Certificate существует')
-#
-#
-# '''
-# 1. CertificateType: id(long), certificateTypeName (String), CertificateTypeDescription(string)
-# 2. UCUser: id, upn(String)
-# 3.    Certificate: id, CertificateType(fk), serial(String), valid Before(Date), validAfter(Date),
-#                                                               IsDefault(Boolean), uCUser(fk)
-# '''
-#
-# conn.commit()
-# conn.close()
+
+def createTableCertificateUNEP():
+    conn = psycopg2.connect(**db_config)
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute('''CREATE TABLE CertificateUNEP
+            (ID SERIAL PRIMARY KEY,
+            CertificateType int REFERENCES CertificateType(ID) ON DELETE CASCADE,
+            Thumbprint VARCHAR(50) NOT NULL,
+            validAfter DATE NOT NULL,
+            validBefore DATE NOT NULL,            
+            IsDefault boolean,
+            UCUser VARCHAR(50) REFERENCES UCUser(ID) ON DELETE CASCADE);''')
+
+        print('Create a Certificate table')
+
+    except psycopg2.errors.DuplicateTable:
+        print ('Table the Certificate exists')
+
+    conn.commit()
+    cursor.close()
+    conn.close()
 
 def readUsersUnep():
     wb = load_workbook(sourseFileUserUNEP)
@@ -126,12 +121,7 @@ def readUsersUnep():
             elif userID in userList and '@' in providerKey:
                 print(f'--- Записываем значение {i} ----{userID} {providerKey}')
                 userList[userID] = providerKey
-'''
-    with open('userList.txt', 'w') as f:
-        for item, key in userList.items():  # Вывод на печать справочника
-            print(item, key)
-            f.write(f'{item}, {key}\n')
-'''
+
 
 '''
 Функция проверяет всели данные из таблицы занесены в БД            
@@ -150,38 +140,37 @@ def test():
                 print (f'Ошибка {userList[userID]}/{providerKey}')
 '''
 
-'''
-Код для проверки соотношения ID только одному User. Если один ID оответствует разным Логинам пишем в файл error_UNEP.txt
+def readCertificateUNEP():
+    wb = load_workbook(sourseFileSertUNEP)
+    ws = wb['Лист1']
+    i = 0
 
-            if userID in userList and userList[userID].split('@')[0] != providerKey.split('@')[0]:
-                with open('error_UNEP.txt', 'a') as f:
-                    f.write(f'id = {userID} {userList[userID].split("@")[0]} - {providerKey.split("@")[0]}\n')
-            else:
-                userList[userID] = providerKey
-'''
+    for row in range(2, ws.max_row+1):
+        i += 1
 
-'''
-код проверки сколько логинов Users без @ 
-    # i = 0
-    # with open ('error_UNEP.txt', 'a') as f:
-    #     for item in errorList:
-    #         if item not in userList:
-    #             i +=1
-    #             f.write(f'{i} ID без @ - {item}\n')
-    #
-    #     print (i)
-'''
+        if ws["A" + str(row)].value:
+            Thumbprint = ws["A" + str(row)].value
+            validAfter = ws["B" + str(row)].value
+            validBefore = ws["C" + str(row)].value
+            IsDefault = ws["D" + str(row)].value
+            UCUser = ws["E" + str(row)].value
+            print(f'--- Записываем значение {i} ----{Thumbprint}')
+            certUnepList.append([Thumbprint, validAfter, validBefore, IsDefault, UCUser])
+
+    for item in certUnepList:
+        print (item[0], item[1], item[2], item[3], item[4])
+
 
 def saveTableUserUNEP():
     i = 0
     conn = psycopg2.connect(**db_config)
     cursor = conn.cursor()
-    for UserID , ProviderKey in userList.items():
-        i +=1
+    for UserID, ProviderKey in userList.items():
+        i += 1
         print(f'---Пишим в БД {i} значение')
         _SQL = """INSERT INTO public.UCUser(ID, UPN)
             VALUES ('%(UserID)s', '%(ProviderKey)s')
-            """%{'UserID':UserID, 'ProviderKey':ProviderKey}
+            """ %{'UserID': UserID, 'ProviderKey': ProviderKey}
 
         cursor.execute(_SQL)
         conn.commit()
@@ -189,8 +178,34 @@ def saveTableUserUNEP():
     print('Table UCUser write in Postgres')
 
 
-# createTableUCUser()
+def saveTableTableCertificateUNEP():
+    i = 0
+    conn = psycopg2.connect(**db_config)
+    cursor = conn.cursor()
+    for item in certUnepList:
+        i += 1
+        _SQL = """INSERT INTO public.CertificateUNEP
+        (CertificateType, Thumbprint, validAfter, validBefore, IsDefault, UCUser)
+        VALUES
+        
+        """
+
+        print(item[0], item[1], item[2], item[3], item[4])
+
+        # cursor.execute('''CREATE TABLE CertificateUNEP
+        #      (ID SERIAL PRIMARY KEY,
+        #      CertificateType int REFERENCES CertificateType(ID) ON DELETE CASCADE,
+        #      Thumbprint VARCHAR(50) NOT NULL,
+        #      validBefore DATE NOT NULL,
+        #      validAfter DATE NOT NULL,
+        #      IsDefault boolean,
+        #      UCUser VARCHAR(50) REFERENCES UCUser(ID) ON DELETE CASCADE);''')
+
+
+        # createTableUCUser()
 # readUsersUnep()
 # saveTableUserUNEP()
-createTableCertType()
+# createTableCertType()
+# createTableCertificateUNEP()
 
+readCertificateUNEP()
