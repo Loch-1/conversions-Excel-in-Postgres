@@ -14,7 +14,7 @@ print(f"{ver} \n{copyleft}\n{comment}\n\n")
 
 sourseFileUserUNEP = 'D:\\project\\conversion Excel in Postgres\\!initial data\\UNEP_users.xlsx'
 sourseFileUserUKEP = 'D:\\project\\conversion Excel in Postgres\\!initial data\\UKEP_users.xlsx'
-sourseFileSertUNEP = 'D:\\project\\conversion Excel in Postgres\\!initial data\\UNEP_certs_Short.xlsx'
+sourseFileSertUNEP = 'D:\\project\\conversion Excel in Postgres\\!initial data\\UNEP_certs.xlsx'
 sourseFileSertUKEP = 'D:\\project\\conversion Excel in Postgres\\!initial data\\UKEP_certs.xlsx'
 file_error = 'D:\\project\\conversion Excel in Postgres\\!initial data\\data_error.txt'
 
@@ -123,23 +123,6 @@ def readUsersUnep():
                 userList[userID] = providerKey
 
 
-'''
-Функция проверяет всели данные из таблицы занесены в БД            
-def test():
-    wb = load_workbook(sourseFileUserUNEP)
-    ws = wb['Лист1']
-    i = 0
-    print("Начало теста")
-
-    for row in range(2, ws.max_row+1):
-        if ws["A"+str(row)].value:
-            userID = ws["A"+str(row)].value # id из файла Эксель
-            providerKey = str(ws["B"+str(row)].value) # Логин из файла Эксель
-
-            if userList[userID].split('@')[0] != providerKey.split('@')[0]:
-                print (f'Ошибка {userList[userID]}/{providerKey}')
-'''
-
 def readCertificateUNEP():
     wb = load_workbook(sourseFileSertUNEP)
     ws = wb['Лист1']
@@ -156,9 +139,6 @@ def readCertificateUNEP():
             UCUser = ws["E" + str(row)].value
             print(f'--- Записываем значение {i} ----{Thumbprint}')
             certUnepList.append([Thumbprint, validAfter, validBefore, IsDefault, UCUser])
-
-    for item in certUnepList:
-        print (item[0], item[1], item[2], item[3], item[4])
 
 
 def saveTableUserUNEP():
@@ -182,30 +162,60 @@ def saveTableTableCertificateUNEP():
     i = 0
     conn = psycopg2.connect(**db_config)
     cursor = conn.cursor()
+
+    with open('error.txt', 'w') as f:
+        f.write('')
+
     for item in certUnepList:
-        i += 1
-        _SQL = """INSERT INTO public.CertificateUNEP
-        (CertificateType, Thumbprint, validAfter, validBefore, IsDefault, UCUser)
-        VALUES
-        
-        """
+        try:
+            _SQL = """INSERT INTO public.CertificateUNEP
+                (CertificateType, Thumbprint, validAfter, validBefore, IsDefault, UCUser)
+                VALUES 
+                ('%(CertificateType)s', '%(Thumbprint)s', '%(validAfter)s', 
+                '%(validBefore)s', '%(IsDefault)s', '%(UCUser)s') 
+                """%{'CertificateType': '1', 'Thumbprint': item[0], 'validAfter': item[1], 'validBefore': item[2],
+                     'IsDefault': item[3],  'UCUser': item[4]}
 
-        print(item[0], item[1], item[2], item[3], item[4])
+            cursor.execute(_SQL)
 
-        # cursor.execute('''CREATE TABLE CertificateUNEP
-        #      (ID SERIAL PRIMARY KEY,
-        #      CertificateType int REFERENCES CertificateType(ID) ON DELETE CASCADE,
-        #      Thumbprint VARCHAR(50) NOT NULL,
-        #      validBefore DATE NOT NULL,
-        #      validAfter DATE NOT NULL,
-        #      IsDefault boolean,
-        #      UCUser VARCHAR(50) REFERENCES UCUser(ID) ON DELETE CASCADE);''')
+        except psycopg2.errors.ForeignKeyViolation:
+            with open('error.txt', 'a') as f:
+                f.write(f'Ключ {item[4]} отсутствует в таблице "ucuser". Даты {item[1]} - {item[2]}\n')
+
+        except psycopg2.errors.InFailedSqlTransaction:
+            with open('error.txt', 'a') as f:
+                f.write(f'Thumbprint {item[0]},  UCUser: {item[4]} - текущая транзакция прервана\n')
+
+        else:
+            i += 1
+            print(f'---Пишим в БД {i} значение')
+
+        finally:
+            conn.commit()
 
 
-        # createTableUCUser()
-# readUsersUnep()
-# saveTableUserUNEP()
-# createTableCertType()
-# createTableCertificateUNEP()
+def testUser(): #Функция проверяет всели данные из таблицы занесены в БД
+    wb = load_workbook(sourseFileUserUNEP)
+    ws = wb['Лист1']
+    i = 0
+    print("Начало теста")
+
+    for row in range(2, ws.max_row+1):
+        if ws["A"+str(row)].value:
+            userID = ws["A"+str(row)].value # id из файла Эксель
+            providerKey = str(ws["B"+str(row)].value) # Логин из файла Эксель
+
+            if userList[userID].split('@')[0] != providerKey.split('@')[0]:
+                print (f'Ошибка {userList[userID]}/{providerKey}')
+
+
+
+createTableUCUser()
+createTableCertType()
+createTableCertificateUNEP()
+
+readUsersUnep()
+saveTableUserUNEP()
 
 readCertificateUNEP()
+saveTableTableCertificateUNEP()
